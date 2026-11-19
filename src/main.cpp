@@ -6,9 +6,10 @@
 #include <ESP32Servo.h>
 #include <time.h>
 #include "secrets.h"
+// #define MOSTRAR_REDES
 
 // ---------- CONFIGURAÇÃO ----------
-const char* FUSO = "<-03>3";                     // horário de Brasília
+const char *FUSO = "<-03>3";                     // horário de Brasília
 const unsigned long INTERVALO_AGENDA_MS = 60000; // busca a agenda a cada 1 minuto
 const unsigned long LIMITE_FIRMWARE_MS = 20000;  // trava absoluta, vale mais que o servidor
 const unsigned long EPOCH_MINIMO = 1700000000;   // abaixo disso o relógio não sincronizou
@@ -18,7 +19,7 @@ const int MAX_FILA = 8;
 // ---------- COMPORTA (servo de posição) ----------
 const uint8_t PINO_SERVO = 14;
 const int ANGULO_FECHADO = 0;
-const int ANGULO_ABERTO  = 90;
+const int ANGULO_ABERTO = 90;
 
 // Tempo que a comporta leva para abrir e para fechar. Nesse movimento a ração
 // já está passando, então esse tempo é descontado do tempo calculado.
@@ -26,31 +27,36 @@ const unsigned long TEMPO_MOVIMENTO_MS = 300;
 
 Servo servo;
 
-void atuadorIniciar() {
+void atuadorIniciar()
+{
   servo.setPeriodHertz(50);
   servo.attach(PINO_SERVO, 500, 2400);
-  servo.write(ANGULO_FECHADO);   // sempre começa fechada
+  servo.write(ANGULO_FECHADO); // sempre começa fechada
 }
 
-void atuadorLigar() {            // abre a comporta
+void atuadorLigar()
+{ // abre a comporta
   servo.write(ANGULO_ABERTO);
 }
 
-void atuadorDesligar() {         // fecha a comporta
+void atuadorDesligar()
+{ // fecha a comporta
   servo.write(ANGULO_FECHADO);
 }
 
 // ---------- DADOS ----------
-struct Horario {
+struct Horario
+{
   String id;
   uint8_t hora = 0;
   uint8_t minuto = 0;
-  uint8_t dias = 0;                // bit 0 = domingo ... bit 6 = sábado
+  uint8_t dias = 0; // bit 0 = domingo ... bit 6 = sábado
   unsigned long duracaoMs = 0;
-  unsigned long ultimoMinuto = 0;  // evita repetir no mesmo minuto
+  unsigned long ultimoMinuto = 0; // evita repetir no mesmo minuto
 };
 
-struct Pedido {
+struct Pedido
+{
   String id;
   unsigned long duracaoMs = 0;
   uint32_t previsto = 0;
@@ -74,29 +80,39 @@ unsigned long ultimaAgenda = 0;
 Preferences prefs;
 
 // ---------- AGENDA ----------
-bool carregarAgenda(const String& json) {
+bool carregarAgenda(const String &json)
+{
   JsonDocument doc;
-  if (deserializeJson(doc, json)) return false;
-  if (!doc["horarios"].is<JsonArray>()) return false;
+  if (deserializeJson(doc, json))
+    return false;
+  if (!doc["horarios"].is<JsonArray>())
+    return false;
 
   Horario novos[MAX_HORARIOS];
   int n = 0;
 
-  for (JsonObject h : doc["horarios"].as<JsonArray>()) {
-    if (n >= MAX_HORARIOS) break;
+  for (JsonObject h : doc["horarios"].as<JsonArray>())
+  {
+    if (n >= MAX_HORARIOS)
+      break;
 
     int hh = 0, mm = 0;
-    const char* texto = h["hora"] | "";
-    if (sscanf(texto, "%d:%d", &hh, &mm) != 2) continue;
-    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) continue;
+    const char *texto = h["hora"] | "";
+    if (sscanf(texto, "%d:%d", &hh, &mm) != 2)
+      continue;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59)
+      continue;
 
     unsigned long dur = h["duracaoMs"] | 0;
-    if (dur == 0) continue;
+    if (dur == 0)
+      continue;
 
     uint8_t mascara = 0;
-    for (JsonVariant d : h["dias"].as<JsonArray>()) {
+    for (JsonVariant d : h["dias"].as<JsonArray>())
+    {
       int dia = d.as<int>();
-      if (dia >= 0 && dia <= 6) mascara |= (1 << dia);
+      if (dia >= 0 && dia <= 6)
+        mascara |= (1 << dia);
     }
 
     novos[n].id = String(h["id"] | "");
@@ -106,8 +122,10 @@ bool carregarAgenda(const String& json) {
     novos[n].duracaoMs = dur;
 
     // Mantém o "já executei neste minuto" ao atualizar a agenda
-    for (int i = 0; i < totalHorarios; i++) {
-      if (horarios[i].id == novos[n].id) {
+    for (int i = 0; i < totalHorarios; i++)
+    {
+      if (horarios[i].id == novos[n].id)
+      {
         novos[n].ultimoMinuto = horarios[i].ultimoMinuto;
         break;
       }
@@ -115,30 +133,45 @@ bool carregarAgenda(const String& json) {
     n++;
   }
 
-  for (int i = 0; i < n; i++) horarios[i] = novos[i];
+  for (int i = 0; i < n; i++)
+    horarios[i] = novos[i];
   totalHorarios = n;
   tempoMaximoMs = doc["tempoMaximoMs"] | 15000;
   return true;
 }
 
-void listar() {
+void listar()
+{
   time_t agora = time(nullptr);
   struct tm info;
   localtime_r(&agora, &info);
   char buf[32];
   strftime(buf, sizeof(buf), "%d/%m/%Y %H:%M:%S", &info);
 
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.printf("Wi-Fi: conectado na rede [%s] | IP da placa %s\n",
+                  WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+  }
+  else
+  {
+    Serial.println("Wi-Fi: DESCONECTADO");
+  }
+  Serial.printf("Servidor: %s\n", SERVIDOR);
   Serial.printf("Hora atual: %s (relogio %s)\n", buf, relogioOk ? "ok" : "nao sincronizado");
   Serial.printf("Horarios: %d | tempo maximo: %lu ms\n", totalHorarios, tempoMaximoMs);
-  for (int i = 0; i < totalHorarios; i++) {
+  for (int i = 0; i < totalHorarios; i++)
+  {
     Serial.printf("  %02d:%02d  tempo %lu ms  dias(mascara) %d\n",
                   horarios[i].hora, horarios[i].minuto,
                   horarios[i].duracaoMs, horarios[i].dias);
   }
 }
 
-void atualizarAgenda() {
-  if (WiFi.status() != WL_CONNECTED) {
+void atualizarAgenda()
+{
+  if (WiFi.status() != WL_CONNECTED)
+  {
     Serial.println("Sem Wi-Fi: usando a agenda guardada.");
     return;
   }
@@ -149,23 +182,33 @@ void atualizarAgenda() {
   http.setTimeout(5000);
 
   int codigo = http.GET();
-  if (codigo == 200) {
+  if (codigo == 200)
+  {
     String corpo = http.getString();
-    if (carregarAgenda(corpo)) {
-      if (corpo.length() < 3900) prefs.putString("agenda", corpo);  // guarda na memória
+    if (carregarAgenda(corpo))
+    {
+      String antiga = prefs.isKey("agenda") ? prefs.getString("agenda", "") : "";
+      if (corpo.length() < 3900 && antiga != corpo)
+        prefs.putString("agenda", corpo);
       Serial.printf("Agenda atualizada: %d horario(s)\n", totalHorarios);
-    } else {
+    }
+    else
+    {
       Serial.println("Agenda recebida, mas invalida.");
     }
-  } else {
+  }
+  else
+  {
     Serial.printf("Falha ao buscar a agenda (codigo %d)\n", codigo);
   }
   http.end();
 }
 
 // ---------- REGISTRO ----------
-void enviarRegistro(const Pedido& p, uint32_t iniciado, unsigned long duracaoReal, const char* status) {
-  if (WiFi.status() != WL_CONNECTED) {
+void enviarRegistro(const Pedido &p, uint32_t iniciado, unsigned long duracaoReal, const char *status)
+{
+  if (WiFi.status() != WL_CONNECTED)
+  {
     Serial.println("Sem Wi-Fi: registro nao enviado.");
     return;
   }
@@ -192,8 +235,10 @@ void enviarRegistro(const Pedido& p, uint32_t iniciado, unsigned long duracaoRea
 }
 
 // ---------- DOSAGEM ----------
-void enfileirar(const Horario& h, uint32_t previsto) {
-  if (tamFila >= MAX_FILA) {
+void enfileirar(const Horario &h, uint32_t previsto)
+{
+  if (tamFila >= MAX_FILA)
+  {
     Serial.println("Fila cheia: dosagem ignorada!");
     return;
   }
@@ -203,16 +248,21 @@ void enfileirar(const Horario& h, uint32_t previsto) {
   tamFila++;
 }
 
-void iniciarProximo() {
-  if (dosando || tamFila == 0) return;
+void iniciarProximo()
+{
+  if (dosando || tamFila == 0)
+    return;
 
   doseAtual = fila[0];
-  for (int i = 1; i < tamFila; i++) fila[i - 1] = fila[i];
+  for (int i = 1; i < tamFila; i++)
+    fila[i - 1] = fila[i];
   tamFila--;
 
   unsigned long dur = doseAtual.duracaoMs;
-  if (dur > tempoMaximoMs) dur = tempoMaximoMs;
-  if (dur > LIMITE_FIRMWARE_MS) dur = LIMITE_FIRMWARE_MS;
+  if (dur > tempoMaximoMs)
+    dur = tempoMaximoMs;
+  if (dur > LIMITE_FIRMWARE_MS)
+    dur = LIMITE_FIRMWARE_MS;
 
   // Desconta o tempo de abertura e fechamento da comporta
   duracaoDose = (dur > TEMPO_MOVIMENTO_MS + 50) ? dur - TEMPO_MOVIMENTO_MS : 50;
@@ -224,8 +274,10 @@ void iniciarProximo() {
   Serial.printf("Comporta ABERTA por %lu ms\n", duracaoDose);
 }
 
-void atualizarDose() {
-  if (!dosando || millis() - inicioDose < duracaoDose) return;
+void atualizarDose()
+{
+  if (!dosando || millis() - inicioDose < duracaoDose)
+    return;
 
   atuadorDesligar();
   dosando = false;
@@ -236,29 +288,37 @@ void atualizarDose() {
 }
 
 // ---------- RELÓGIO E HORÁRIOS ----------
-void verificarRelogio() {
-  if (relogioOk || time(nullptr) < EPOCH_MINIMO) return;
+void verificarRelogio()
+{
+  if (relogioOk || time(nullptr) < EPOCH_MINIMO)
+    return;
 
   relogioOk = true;
   unsigned long minuto = time(nullptr) / 60;
   // Não dispara a dose do minuto em que a placa ligou (evita repetir após reiniciar)
-  for (int i = 0; i < totalHorarios; i++) horarios[i].ultimoMinuto = minuto;
+  for (int i = 0; i < totalHorarios; i++)
+    horarios[i].ultimoMinuto = minuto;
 
   Serial.println("Relogio sincronizado.");
   listar();
 }
 
-void verificarHorarios() {
+void verificarHorarios()
+{
   time_t agora = time(nullptr);
   struct tm info;
   localtime_r(&agora, &info);
   unsigned long minutoAtual = agora / 60;
 
-  for (int i = 0; i < totalHorarios; i++) {
-    Horario& h = horarios[i];
-    if (h.ultimoMinuto == minutoAtual) continue;
-    if (!(h.dias & (1 << info.tm_wday))) continue;
-    if (h.hora != info.tm_hour || h.minuto != info.tm_min) continue;
+  for (int i = 0; i < totalHorarios; i++)
+  {
+    Horario &h = horarios[i];
+    if (h.ultimoMinuto == minutoAtual)
+      continue;
+    if (!(h.dias & (1 << info.tm_wday)))
+      continue;
+    if (h.hora != info.tm_hour || h.minuto != info.tm_min)
+      continue;
 
     h.ultimoMinuto = minutoAtual;
     Serial.printf("Horario %02d:%02d chegou.\n", h.hora, h.minuto);
@@ -267,15 +327,19 @@ void verificarHorarios() {
 }
 
 // ---------- PROGRAMA ----------
-void setup() {
-  Serial.begin(115200);
+void setup()
+{
+  atuadorIniciar(); // sempre começa com a comporta fechada
 
-  atuadorIniciar();  // sempre começa com a comporta fechada
+  Serial.begin(115200);
+  delay(3000); // dá tempo de o monitor serial abrir e mostrar tudo desde o começo
 
   prefs.begin("comedouro", false);
-  if (prefs.isKey("agenda")) {
+  if (prefs.isKey("agenda"))
+  {
     String salva = prefs.getString("agenda", "");
-    if (salva.length() > 0 && carregarAgenda(salva)) {
+    if (salva.length() > 0 && carregarAgenda(salva))
+    {
       Serial.printf("Agenda guardada carregada: %d horario(s)\n", totalHorarios);
     }
   }
@@ -284,28 +348,36 @@ void setup() {
   WiFi.disconnect();
   delay(100);
 
+#ifdef MOSTRAR_REDES
   Serial.println("Redes encontradas pela placa:");
   int achadas = WiFi.scanNetworks();
-  if (achadas <= 0) Serial.println("  (nenhuma rede encontrada)");
-  for (int i = 0; i < achadas; i++) {
+  if (achadas <= 0)
+    Serial.println("  (nenhuma rede encontrada)");
+  for (int i = 0; i < achadas; i++)
+  {
     Serial.printf("  [%s] (%d dBm)\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i));
   }
+#endif
 
   Serial.printf("Tentando a rede: [%s]\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_SENHA);
   Serial.print("Conectando ao Wi-Fi");
   unsigned long inicio = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000)
+  {
     delay(500);
     Serial.print(".");
   }
   Serial.println();
   Serial.printf("Status do Wi-Fi: %d\n", WiFi.status());
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED)
+  {
     Serial.print("Conectado. IP da placa: ");
     Serial.println(WiFi.localIP());
-  } else {
+  }
+  else
+  {
     Serial.println("Nao conectou (vai continuar tentando em segundo plano).");
   }
 
@@ -316,13 +388,18 @@ void setup() {
   Serial.println("Comandos: l = listar | a = atualizar agenda | t = teste 2 s | c = calibrar 10 s");
 }
 
-void loop() {
-  if (Serial.available() > 0) {
+void loop()
+{
+  if (Serial.available() > 0)
+  {
     char c = Serial.read();
-    if (c == 'l' || c == 'L') listar();
-    if ((c == 'a' || c == 'A') && !dosando) atualizarAgenda();
+    if (c == 'l' || c == 'L')
+      listar();
+    if ((c == 'a' || c == 'A') && !dosando)
+      atualizarAgenda();
 
-    if ((c == 't' || c == 'T') && !dosando) {
+    if ((c == 't' || c == 'T') && !dosando)
+    {
       Serial.println("Teste: comporta aberta por 2 s...");
       atuadorLigar();
       delay(2000);
@@ -330,7 +407,8 @@ void loop() {
       Serial.println("Comporta fechada.");
     }
 
-    if ((c == 'c' || c == 'C') && !dosando) {
+    if ((c == 'c' || c == 'C') && !dosando)
+    {
       Serial.println("Calibracao: comporta aberta por 10 s...");
       atuadorLigar();
       delay(10000);
@@ -342,12 +420,14 @@ void loop() {
   verificarRelogio();
 
   // Não busca a agenda durante uma dosagem (a requisição pode demorar)
-  if (!dosando && millis() - ultimaAgenda >= INTERVALO_AGENDA_MS) {
+  if (!dosando && millis() - ultimaAgenda >= INTERVALO_AGENDA_MS)
+  {
     ultimaAgenda = millis();
     atualizarAgenda();
   }
 
-  if (relogioOk) verificarHorarios();
+  if (relogioOk)
+    verificarHorarios();
 
   iniciarProximo();
   atualizarDose();
